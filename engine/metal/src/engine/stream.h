@@ -38,6 +38,7 @@ public:
     // with room to spare.  =0: never (the whole GGUF wrapped, as on the M5 Max).
     static bool wanted(const gguf::File& f, const mtl::Context& cx);
     bool open(const gguf::File& f, std::string& err);
+    bool open(const gguf::File& f, int n_layers, std::string& err);
     // pread `len` bytes at file offset `off` (F_NOCACHE)
     bool read(void* dst, uint64_t len, uint64_t off) const;
     // The dense tensors into one buffer; every tensor's offset in `f` is rewritten to its offset in `out`.
@@ -70,6 +71,11 @@ public:
     void hold_region(bool hold);
     void report(FILE* f) const;
     void reset_stats();
+    uint64_t reads() const { return reads_.load(); }
+    uint64_t hits() const { return hits_; }
+    uint64_t misses() const { return misses_; }
+    uint64_t bytes_read() const { return bytes_read_.load(); }
+    bool using_contig() const { return cfd_ >= 0; }
 
 private:
     uint64_t shrink_to_ = 0;
@@ -119,6 +125,7 @@ private:
     int outstanding_ = 0;
     int nio_ = 6, pre_k_ = 10, pre_k2_ = 0, split_ = 2;
     bool prefetch_ = true, fake_ = false, pre_mru_ = false;
+    int nl_ = 0;
     int ne_ = 512;   // routed experts per layer of this model (512; 256 for the expert-pruned Coder), read from the GGUF at open(); stream.cpp's NE is the largest (array sizes, the 512-wide key / smap stride)
     // stats
     uint64_t stamp_ = 1;   // the handshake count: slots pinned with the current one are in use on the GPU

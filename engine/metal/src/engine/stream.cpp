@@ -22,7 +22,7 @@
 namespace strata::metal_engine {
 
 namespace {
-constexpr int NL = strata_metal::geo::NL, NE = 512;   // layers of the compiled shape (engine/geo.h); NE: the row stride of the per-layer maps (the largest expert count)
+constexpr int NE = 512;   // NE: the row stride of the per-layer maps (the largest expert count)
 constexpr uint64_t PAGE = 16384;
 double now_ms() { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 int env_int(const char* n, int d) {
@@ -56,17 +56,24 @@ ExpertStream::~ExpertStream() {
     cv_.notify_all();
     for (auto& t : io_) t.join();
     if (fd_ >= 0) ::close(fd_);
+    if (cfd_ >= 0) ::close(cfd_);
 }
 
 bool ExpertStream::open(const gguf::File& f, std::string& err) {
+    return open(f, strata_metal::geo::NL, err);
+}
+
+bool ExpertStream::open(const gguf::File& f, int n_layers, std::string& err) {
+    if (n_layers <= 0) { err = "metal stream: invalid n_layers"; return false; }
+    nl_ = n_layers;
     fd_ = ::open(f.path.c_str(), O_RDONLY);
     if (fd_ < 0) { err = "metal stream: cannot open " + f.path; return false; }
     fcntl(fd_, F_NOCACHE, 1);
     fcntl(fd_, F_RDAHEAD, 0);
-    lay_.resize(NL);
+    lay_.resize(nl_);
     if (const gguf::Tensor* g0 = f.find("blk.0.ffn_gate_exps.weight"); g0 && g0->shape.size() >= 3 && g0->shape[2] > 0 && g0->shape[2] <= NE)
         ne_ = (int) g0->shape[2];
-    for (int l = 0; l < NL; ++l) {
+    for (int l = 0; l < nl_; ++l) {
         const std::string b = "blk." + std::to_string(l) + ".";
         const gguf::Tensor* g = f.find(b + "ffn_gate_exps.weight");
         const gguf::Tensor* u = f.find(b + "ffn_up_exps.weight");
@@ -80,10 +87,10 @@ bool ExpertStream::open(const gguf::File& f, std::string& err) {
         const std::string cp = f.path + ".experts";
         const int cfd = ::open(cp.c_str(), O_RDONLY);
         bool ok = cfd >= 0;
-        std::vector<uint64_t> off(NL);
+        std::vector<uint64_t> off(nl_);
         if (ok) {
             uint8_t h[64];
-            std::vector<uint64_t> t((size_t) NL * 4);
+            std::vector<uint64_t> t((size_t) nl_ * 4);
             struct stat st {};
             ::fstat(fd_, &st);
             ok = ::pread(cfd, h, 64, 0) == 64 && std::memcmp(h, "STRX", 4) == 0 &&
@@ -91,14 +98,14 @@ bool ExpertStream::open(const gguf::File& f, std::string& err) {
             uint32_t ver = 0, nl = 0, ne = 0;
             uint64_t src = 0;
             std::memcpy(&ver, h + 4, 4); std::memcpy(&nl, h + 8, 4); std::memcpy(&ne, h + 12, 4); std::memcpy(&src, h + 16, 8);
-            ok = ok && ver == 1 && nl == (uint32_t) NL && ne == (uint32_t) ne_ && src == (uint64_t) st.st_size;
-            for (int l = 0; ok && l < NL; ++l) {
+            ok = ok && ver == 1 && nl == (uint32_t) nl_ && ne == (uint32_t) ne_ && src == (uint64_t) st.st_size;
+            for (int l = 0; ok && l < nl_; ++l) {
                 const Lay& x = lay_[(size_t) l];
                 ok = t[(size_t) l * 4 + 1] == x.gs && t[(size_t) l * 4 + 2] == x.us && t[(size_t) l * 4 + 3] == x.ds;
                 off[(size_t) l] = t[(size_t) l * 4];
             }
-            if (ok) {   // spot check: layer 0's first and layer 47's last expert, every slice
-                for (const int l : {0, NL - 1}) {
+            if (ok) {   // spot check: layer 0's first and last layer's last expert, every slice
+                for (const int l : {0, nl_ - 1}) {
                     const Lay& x = lay_[(size_t) l];
                     const int e = l == 0 ? 0 : ne_ - 1;
                     std::vector<uint8_t> a(x.gs + x.us + x.ds), b(a.size());
@@ -129,9 +136,9 @@ bool ExpertStream::open(const gguf::File& f, std::string& err) {
     {
         const char* ew = std::getenv("STRATA_METAL_CLASS_WASTE");
         const double waste = ew ? std::atof(ew) : 0.15;
-        std::vector<uint64_t> pages_of(NL);
+        std::vector<uint64_t> pages_of(nl_);
         std::vector<uint64_t> sizes;
-        for (int l = 0; l < NL; ++l) {
+        for (int l = 0; l < nl_; ++l) {
             const Lay& x = lay_[(size_t) l];
             pages_of[(size_t) l] = (x.gs + x.us + x.ds + PAGE - 1) / PAGE;
             sizes.push_back(pages_of[(size_t) l]);
@@ -142,7 +149,7 @@ bool ExpertStream::open(const gguf::File& f, std::string& err) {
         for (auto it = sizes.rbegin(); it != sizes.rend(); ++it)
             if (tops.empty() || (double) *it < (1.0 - waste) * (double) tops.back()) tops.push_back(*it);
         for (uint64_t t : tops) { Cls c; c.pages = t; cls_.push_back(c); }
-        for (int l = 0; l < NL; ++l) {
+        for (int l = 0; l < nl_; ++l) {
             int best = 0;   // the smallest class that holds the layer's slot
             for (int c = 0; c < (int) cls_.size(); ++c)
                 if (cls_[(size_t) c].pages >= pages_of[(size_t) l]) best = c;
@@ -156,7 +163,7 @@ bool ExpertStream::open(const gguf::File& f, std::string& err) {
     // mix (1.75 MB, the SSD is the limit) top 6 at the tail 8.06 vs top 10 at the front 7.43.
     uint64_t eb = 0;
     for (const auto& x : lay_) eb += x.gs + x.us + x.ds;
-    const bool big = (double) eb / NL > 1.5e6;
+    const bool big = (double) eb / nl_ > 1.5e6;
     pre_k_ = env_int("STRATA_METAL_PREFETCH", big ? 6 : 10);
     pre_k2_ = env_int("STRATA_METAL_PREFETCH2", 0);
     prefetch_ = pre_k_ > 0;
@@ -378,16 +385,16 @@ bool ExpertStream::make_arena(mtl::Context& cx, uint64_t budget, const std::stri
     for (auto& k : cls_) k.n = 0;   // a second try (after a shrink) lays the arena out again
     // the ranking: the profile's pairs, then every pair it misses, layer-interleaved
     std::vector<std::pair<int, int>> rank;
-    std::vector<uint8_t> seen((size_t) NL * NE, 0);
+    std::vector<uint8_t> seen((size_t) nl_ * NE, 0);
     if (FILE* f = std::fopen(profile.c_str(), "rb")) {
         char magic[4];
         uint32_t h[5];
         if (std::fread(magic, 1, 4, f) == 4 && std::memcmp(magic, "STRP", 4) == 0 && std::fread(h, 4, 5, f) == 5 &&
-            h[1] == (uint32_t) NL && h[2] == (uint32_t) ne_) {
+            h[1] == (uint32_t) nl_ && h[2] == (uint32_t) ne_) {
             for (uint32_t i = 0; i < h[4]; ++i) {
                 uint16_t p[2];
                 if (std::fread(p, 2, 2, f) != 2) break;
-                if (p[0] < NL && p[1] < ne_ && !seen[(size_t) p[0] * NE + p[1]]) {
+                if (p[0] < nl_ && p[1] < ne_ && !seen[(size_t) p[0] * NE + p[1]]) {
                     seen[(size_t) p[0] * NE + p[1]] = 1;
                     rank.push_back({p[0], p[1]});
                 }
@@ -399,7 +406,7 @@ bool ExpertStream::make_arena(mtl::Context& cx, uint64_t budget, const std::stri
     }
     const size_t from_profile = rank.size();
     for (int e = 0; e < ne_; ++e)
-        for (int l = 0; l < NL; ++l)
+        for (int l = 0; l < nl_; ++l)
             if (!seen[(size_t) l * NE + e]) rank.push_back({l, e});
     // the pool of each size class: at least min_slots (a prompt chunk's layer needs up to 512 at once), then the
     // top-ranked pairs that fit in the budget
@@ -468,11 +475,11 @@ bool ExpertStream::make_arena(mtl::Context& cx, uint64_t budget, const std::stri
         code_[(size_t) s] = ((uint32_t) at[(size_t) s].first << 28) | (uint32_t) at[(size_t) s].second;
         host_[(size_t) s] = chunks_[(size_t) at[(size_t) s].first].as<uint8_t>() + at[(size_t) s].second * PAGE;
     }
-    smap_ = cx.alloc((size_t) NL * NE * 4);
-    std::memset(smap_.ptr, 0xFF, (size_t) NL * NE * 4);
+    smap_ = cx.alloc((size_t) nl_ * NE * 4);
+    std::memset(smap_.ptr, 0xFF, (size_t) nl_ * NE * 4);
     slots_ = std::vector<Slot>((size_t) base);
     retired_.assign((size_t) base, 0);
-    where_.assign((size_t) NL * NE, -1);
+    where_.assign((size_t) nl_ * NE, -1);
     for (auto& k : cls_) {
         for (int s = k.base; s < k.base + k.n; ++s) {
             slots_[(size_t) s].prev = s == k.base ? -1 : s - 1;
@@ -693,7 +700,7 @@ void ExpertStream::at_layer(int l, int T, int topk, const int32_t* ids, const fl
     if (prompt) {
         // a chunk uses nearly all of the next layer's experts: every one not in the arena is streamed in behind this
         // layer's compute, into the LRU tail (the decode-hot experts stay)
-        if (l + 1 < NL) {
+        if (l + 1 < nl_) {
             bool any = false;
             std::lock_guard<std::mutex> g(mu_);
             const int ln = l + 1;
@@ -712,8 +719,8 @@ void ExpertStream::at_layer(int l, int T, int topk, const int32_t* ids, const fl
         return;
     }
     // read-ahead: layer l + 1 (each token's top pre_k_ of the predicted router logits), then layer l + 2 (top pre_k2_)
-    if (prefetch_ && pred && l + 1 < NL) ahead(l + 1, T, pred, pre_k_);
-    if (pre_k2_ > 0 && pred2 && l + 2 < NL) ahead(l + 2, T, pred2, pre_k2_);
+    if (prefetch_ && pred && l + 1 < nl_) ahead(l + 1, T, pred, pre_k_);
+    if (pre_k2_ > 0 && pred2 && l + 2 < nl_) ahead(l + 2, T, pred2, pre_k2_);
     host_ms_ += now_ms() - t0;
 }
 
@@ -808,7 +815,7 @@ void ExpertStream::report(FILE* f) const {
     if (p_chunks_)
         std::fprintf(f, "expert stream prompts    %llu chunks: %llu distinct lookups (%.1f per layer), in the arena %.4f, streamed "
                         "ahead %.4f, missed %.4f; %llu streamed in; host %.1f ms per chunk, of it waiting %.1f ms\n",
-                     (unsigned long long) p_chunks_, (unsigned long long) p_lookups_, p_lookups_ / (double) NL / p_chunks_,
+                     (unsigned long long) p_chunks_, (unsigned long long) p_lookups_, p_lookups_ / (double) nl_ / p_chunks_,
                      p_hits_ / std::max(1.0, (double) p_lookups_), p_pre_ / std::max(1.0, (double) p_lookups_),
                      p_misses_ / std::max(1.0, (double) p_lookups_), (unsigned long long) p_streamed_, p_host_ms_ / p_chunks_,
                      p_wait_ms_ / p_chunks_);

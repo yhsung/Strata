@@ -35,6 +35,9 @@ constant int GDN_NTOK [[function_constant(2)]];
 // output are row y of the window's arrays.  Off: exactly the plain kernel.
 constant bool GDN_ROWS_C [[function_constant(31)]];
 constant bool gdn_rows = is_function_constant_defined(GDN_ROWS_C) && GDN_ROWS_C;
+// GDN_SILU (function constant 32): Qwen3.6 (qwen35moe) gates the GDN output with silu(z) instead of sigmoid(z).
+constant bool GDN_SILU_C [[function_constant(32)]];
+constant bool gdn_silu = is_function_constant_defined(GDN_SILU_C) && GDN_SILU_C;
 
 struct GdnArgs {
     uint h_k;        // 16
@@ -163,7 +166,8 @@ kernel void gdn_step_t(device float* state [[buffer(0)]], device float* hist [[b
             const float tot = (part[0] + part[1]) + (part[2] + part[3]);
             const float rs = rsqrt(tot / float(S) + a.eps);
             const float zz = z[tr * hv * S + h * S + j];
-            const float yv = ((rs * o) * gamma[j]) * (1.0f / (1.0f + exp(-zz)));
+            const float gz = gdn_silu ? (zz / (1.0f + exp(-zz))) : (1.0f / (1.0f + exp(-zz)));
+            const float yv = ((rs * o) * gamma[j]) * gz;
             y[tr * hv * S + h * S + j] = yv;
             if (a.plane) {
                 const float q2s[8] = {1.0f, 0.25f, 0.0625f, 0.015625f, 0.00390625f, 0.0009765625f, 0.000244140625f,

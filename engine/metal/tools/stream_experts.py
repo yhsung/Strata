@@ -23,32 +23,44 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import metal_repack as R  # noqa: E402
 
-NL, NE = 48, 512
 ALIGN = 16384
 
 
+def detect_shape(tab: dict[str, dict]) -> tuple[int, int]:
+    """Detect trunk layer count and expert count from GGUF tensor names and dims (skipping blk.N.nextn.* MTP layers)."""
+    g0 = tab["blk.0.ffn_gate_exps.weight"]
+    ne = int(g0["dims"][2])
+    nl = 0
+    while f"blk.{nl}.ffn_gate_exps.weight" in tab:
+        if any(k.startswith(f"blk.{nl}.nextn.") for k in tab):
+            break
+        nl += 1
+    return nl, ne
+
+
 def plan(gguf: Path):
-    """The reader, each layer's (gate, up, down, slice sizes), each layer's offset in the file, the file's size, the
-    first data offset."""
+    """The reader, (nl, ne), each layer's (gate, up, down, slice sizes), each layer's offset in the file, the file's
+    size, the first data offset."""
     rd = R.Reader(gguf)
     tab = {t["name"]: t for t in rd.tensors}
+    nl, ne = detect_shape(tab)
     lay = []
-    for l in range(NL):
+    for l in range(nl):
         g, u, d = (tab[f"blk.{l}.ffn_{k}_exps.weight"] for k in ("gate", "up", "down"))
-        lay.append((g, u, d, g["bytes"] // NE, u["bytes"] // NE, d["bytes"] // NE))
-    head_len = 64 + NL * 32
+        lay.append((g, u, d, g["bytes"] // ne, u["bytes"] // ne, d["bytes"] // ne))
+    head_len = 64 + nl * 32
     data0 = (head_len + ALIGN - 1) // ALIGN * ALIGN
     offs, at = [], data0
     for g, u, d, gs, us, ds in lay:
         offs.append(at)
-        at += NE * (gs + us + ds)
+        at += ne * (gs + us + ds)
         at = (at + ALIGN - 1) // ALIGN * ALIGN
-    return rd, lay, offs, at, data0
+    return rd, nl, ne, lay, offs, at, data0
 
 
 def size_bytes(gguf: Path) -> int:
     """The size the file for this GGUF will have (setup checks the free disk with it)."""
-    rd, _, _, at, _ = plan(gguf)
+    rd, _, _, _, _, at, _ = plan(gguf)
     rd.f.close()
     return at
 
@@ -60,8 +72,8 @@ def main() -> int:
     ap.add_argument("--verify", action="store_true")
     a = ap.parse_args()
     out = a.out or a.gguf.with_name(a.gguf.name + ".experts")
-    rd, lay, offs, at, data0 = plan(a.gguf)
-    head = struct.pack("<4sIIIQ", b"STRX", 1, NL, NE, os.path.getsize(a.gguf)).ljust(64, b"\0")
+    rd, nl, ne, lay, offs, at, data0 = plan(a.gguf)
+    head = struct.pack("<4sIIIQ", b"STRX", 1, nl, ne, os.path.getsize(a.gguf)).ljust(64, b"\0")
     for (g, u, d, gs, us, ds), o in zip(lay, offs):
         head += struct.pack("<QQQQ", o, gs, us, ds)
     tmp = out.with_name(out.name + ".part")
@@ -73,8 +85,8 @@ def main() -> int:
             src.seek(u["abs"]); U = src.read(u["bytes"])
             src.seek(d["abs"]); D = src.read(d["bytes"])
             f.seek(o)
-            f.write(b"".join(G[e * gs:(e + 1) * gs] + U[e * us:(e + 1) * us] + D[e * ds:(e + 1) * ds] for e in range(NE)))
-            print(f"\r  layer {l + 1} / {NL}", end="", flush=True)
+            f.write(b"".join(G[e * gs:(e + 1) * gs] + U[e * us:(e + 1) * us] + D[e * ds:(e + 1) * ds] for e in range(ne)))
+            print(f"\r  layer {l + 1} / {nl}", end="", flush=True)
         f.truncate(at)
     print()
     if a.verify:
@@ -85,14 +97,14 @@ def main() -> int:
                     src.seek(t["abs"])
                     h1.update(src.read(t["bytes"]))
                 f.seek(o)
-                blob = f.read(NE * (gs + us + ds))
+                blob = f.read(ne * (gs + us + ds))
                 step = gs + us + ds
                 for part, size, base in ((0, gs, 0), (1, us, gs), (2, ds, gs + us)):
-                    h2.update(b"".join(blob[e * step + base:e * step + base + size] for e in range(NE)))
+                    h2.update(b"".join(blob[e * step + base:e * step + base + size] for e in range(ne)))
                 if h1.digest() != h2.digest():
                     tmp.unlink()
                     sys.exit(f"verify FAILED at layer {l} (output removed)")
-        print(f"verify: {NL} layers x {NE} experts identical to the GGUF")
+        print(f"verify: {nl} layers x {ne} experts identical to the GGUF")
     os.replace(tmp, out)
     print(f"{out}: {at / 2**30:.2f} GiB")
     return 0
