@@ -1,0 +1,24 @@
+{
+  "arch": "qwen35moe",
+  "exe": "<STRATA_ROOT>/engine/build-metal/strata-q36-metal",
+  "args": [
+    "--native",
+    "<PATH_TO_QWEN36_GGUF>",
+    "--max-context",
+    "8192",
+    "--stream",
+    "--arena-gb",
+    "4",
+    "--expert-profile",
+    "<STRATA_ROOT>/pack/qwen36-ud-q4ks/expert-profile.bin",
+    "--mtp",
+    "2"
+  ],
+  "parallel": 2,
+  "cwd": "<STRATA_ROOT>",
+  "tokenizer": "<STRATA_ROOT>/pack/qwen36-ud-q4ks/tokenizer",
+  "model_name": "qwen3.6-35b-a3b",
+  "reasoning_effort": "none",
+  "mtp": true,
+  "host": "127.0.0.1"
+}
