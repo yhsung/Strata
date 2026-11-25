@@ -41,7 +41,7 @@ target_compile_definitions(mtl_rt PRIVATE
 target_link_libraries(mtl_rt PUBLIC "-framework Metal" "-framework Foundation")
 
 file(GLOB STRATA_METAL_TESTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
-list(REMOVE_ITEM STRATA_METAL_TESTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_hello.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/q36_engine_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/q36_stream_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/q36_stream_engine_test.cpp)
+list(REMOVE_ITEM STRATA_METAL_TESTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/runtime_hello.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/q36_engine_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/q36_stream_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/q36_stream_engine_test.cpp ${CMAKE_CURRENT_SOURCE_DIR}/tests/q36_serve_test.cpp)
 enable_testing()
 foreach(src ${STRATA_METAL_TESTS})
   get_filename_component(t ${src} NAME_WE)
@@ -196,6 +196,7 @@ target_include_directories(strata_q36_metal PUBLIC src)
 target_link_libraries(strata_q36_metal PUBLIC strata_metal_stream mtl_rt)
 
 add_executable(strata-q36-metal src/q36/q36_metal_main.cpp)
+target_include_directories(strata-q36-metal PRIVATE ${STRATA_ROOT}/include)
 target_link_libraries(strata-q36-metal PRIVATE strata_q36_metal)
 
 add_executable(q36_engine_test tests/q36_engine_test.cpp)
@@ -210,3 +211,8 @@ add_test(NAME q36_stream_test COMMAND q36_stream_test)
 add_executable(q36_stream_engine_test tests/q36_stream_engine_test.cpp)
 target_link_libraries(q36_stream_engine_test PRIVATE strata_q36_metal mtl_rt)
 add_test(NAME q36_stream_engine_test COMMAND q36_stream_engine_test)
+
+add_executable(q36_serve_test tests/q36_serve_test.cpp)
+target_compile_definitions(q36_serve_test PRIVATE STRATA_Q36_METAL_BIN="$<TARGET_FILE:strata-q36-metal>")
+target_link_libraries(q36_serve_test PRIVATE strata_q36_metal mtl_rt)
+add_test(NAME q36_serve_test COMMAND q36_serve_test)
