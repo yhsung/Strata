@@ -220,13 +220,15 @@ int main() {
         }
 
         const auto st1 = eng.stream_stats();
-        if (st1.reads == 0) {
-            std::fprintf(stderr, "FAIL: expected SSD reads > 0 in streaming mode\n");
+        if (st1.reads == 0 || st1.pre_issued == 0) {
+            std::fprintf(stderr, "FAIL: expected SSD reads > 0 and pre_issued > 0 (reads=%llu pre_issued=%llu)\n",
+                         (unsigned long long)st1.reads, (unsigned long long)st1.pre_issued);
             return 1;
         }
-        std::printf("stream stats: dense=%llu arena=%llu reads=%llu hits=%llu misses=%llu\n",
+        std::printf("stream stats: dense=%llu arena=%llu reads=%llu hits=%llu misses=%llu pre_hits=%llu pre_issued=%llu\n",
                     (unsigned long long)st1.dense_bytes, (unsigned long long)st1.arena_bytes,
-                    (unsigned long long)st1.reads, (unsigned long long)st1.hits, (unsigned long long)st1.misses);
+                    (unsigned long long)st1.reads, (unsigned long long)st1.hits, (unsigned long long)st1.misses,
+                    (unsigned long long)st1.pre_hits, (unsigned long long)st1.pre_issued);
 
         eng.reset();
         const float* lg_rst = nullptr;
@@ -234,6 +236,37 @@ int main() {
         const bool rst_ok = std::memcmp(first_stream.data(), lg_rst, 4 * NVOCAB) == 0;
         fails += !rst_ok;
         std::printf("q36_stream_engine_test reset: bitwise=%s  %s\n", rst_ok ? "yes" : "no", rst_ok ? "PASS" : "FAIL");
+
+        const std::string prof_path = "q36_test.strp";
+        if (!eng.save_expert_profile(prof_path, err)) {
+            std::fprintf(stderr, "FAIL: save_expert_profile: %s\n", err.c_str());
+            return 1;
+        }
+
+        strata::metal_q36::Q36MetalEngine eng_prof;
+        strata::metal_q36::Options popt;
+        popt.ctx = MAX_CTX;
+        popt.silent = true;
+        popt.stream = true;
+        popt.arena_gb = 0.016;
+        popt.profile_path = prof_path;
+        if (!eng_prof.open(path, popt, err)) {
+            std::fprintf(stderr, "FAIL: profile open: %s\n", err.c_str());
+            std::remove(prof_path.c_str());
+            return 1;
+        }
+        for (int p = 0; p < 3; ++p) {
+            const float* lg = nullptr;
+            if (!eng_prof.forward(tokens[p], lg, err)) return 1;
+            Err e;
+            for (int i = 0; i < NVOCAB; ++i) e.add(lg[i], res_logits[p][i]);
+            const int ag_s = argmax(lg, NVOCAB), ag_r = argmax(res_logits[p].data(), NVOCAB);
+            const bool ok = e.l2() < 1e-6 && ag_s == ag_r;
+            fails += !ok;
+            std::printf("q36_stream_engine_test profile pos=%d: rel L2 %.2e argmax=%d/%d  %s\n",
+                        p, e.l2(), ag_s, ag_r, ok ? "PASS" : "FAIL");
+        }
+        std::remove(prof_path.c_str());
     }
 
     std::remove(path.c_str());

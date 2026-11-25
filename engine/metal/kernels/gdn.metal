@@ -36,8 +36,11 @@ constant int GDN_NTOK [[function_constant(2)]];
 constant bool GDN_ROWS_C [[function_constant(31)]];
 constant bool gdn_rows = is_function_constant_defined(GDN_ROWS_C) && GDN_ROWS_C;
 // GDN_SILU (function constant 32): Qwen3.6 (qwen35moe) gates the GDN output with silu(z) instead of sigmoid(z).
+#ifndef STRATA_GDN_SILU_DECL
+#define STRATA_GDN_SILU_DECL
 constant bool GDN_SILU_C [[function_constant(32)]];
 constant bool gdn_silu = is_function_constant_defined(GDN_SILU_C) && GDN_SILU_C;
+#endif
 
 struct GdnArgs {
     uint h_k;        // 16

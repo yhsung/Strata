@@ -29,6 +29,13 @@ struct GdnPArgs {
 constant int GDN_LD [[function_constant(7)]];
 constant bool gdn_ld_on = is_function_constant_defined(GDN_LD);
 
+// function constant 32 (optional): Qwen3.6 multiplies output by silu(z) instead of sigmoid(z) (Flash-Next default).
+#ifndef STRATA_GDN_SILU_DECL
+#define STRATA_GDN_SILU_DECL
+constant bool GDN_SILU_C [[function_constant(32)]];
+constant bool gdn_silu = is_function_constant_defined(GDN_SILU_C) && GDN_SILU_C;
+#endif
+
 static inline float gp_conv(device const float* qkv, device const float* hist, device const float* cw, int ch, int t,
                             int channels) {
     float s = 0.0f;
@@ -318,7 +325,8 @@ kernel void gdn_post(device const float* o [[buffer(0)]], device const float* z 
     const float tot = (part[0] + part[1]) + (part[2] + part[3]);
     const float rs = rsqrt(tot / 128.0f + a.eps);
     const float zv = gdn_ld_on ? z[uint(t) * uint(GDN_LD) + uint(h) * 128u + tid] : z[i];
-    const float yv = ((rs * ov) * gamma[tid]) * (1.0f / (1.0f + exp(-zv)));
+    const float gz = gdn_silu ? (zv / (1.0f + exp(-zv))) : (1.0f / (1.0f + exp(-zv)));
+    const float yv = ((rs * ov) * gamma[tid]) * gz;
     yh[i] = half(yv);
     if (a.f32) y[i] = yv;
 }

@@ -74,6 +74,13 @@ public:
     uint64_t reads() const { return reads_.load(); }
     uint64_t hits() const { return hits_; }
     uint64_t misses() const { return misses_; }
+    uint64_t pre_hits() const { return pre_hits_; }
+    uint64_t pre_issued() const { return pre_issued_; }
+    int min_class_slots() const {
+        int m = cls_.empty() ? 0 : cls_[0].n;
+        for (const auto& k : cls_) if (k.n < m) m = k.n;
+        return m;
+    }
     uint64_t bytes_read() const { return bytes_read_.load(); }
     bool using_contig() const { return cfd_ >= 0; }
 
