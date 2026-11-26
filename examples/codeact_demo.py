@@ -4,11 +4,15 @@
 #     "smolagents[litellm]",
 # ]
 # ///
-
 import argparse
 import os
+import sys
+import time
 
 from smolagents import CodeAgent, LiteLLMModel, tool
+
+from codeact_check import format_report, verify_answer
+
 
 
 @tool
@@ -48,10 +52,22 @@ def main():
         additional_authorized_imports=["math"],
     )
 
+    t0 = time.perf_counter()
     result = agent.run(
         "我有 100 USD、50000 JPY 和 80 EUR，請幫我換算成台幣並加總，最後無條件進位到整數。"
     )
+    elapsed = time.perf_counter() - t0
+    in_tok = out_tok = 0
+    for step in agent.memory.steps:  # ActionStep.token_usage (smolagents>=1.x dataclass)
+        tu = getattr(step, "token_usage", None) or getattr(getattr(step, "model_output", None), "token_usage", None)
+        if tu is None:
+            continue
+        in_tok += getattr(tu, "input_tokens", 0) or 0
+        out_tok += getattr(tu, "output_tokens", 0) or 0
+    ok = verify_answer(result)
     print("最終結果：", result)
+    print(format_report(ok, elapsed, in_tok, out_tok))
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

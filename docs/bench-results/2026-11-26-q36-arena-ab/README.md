@@ -56,17 +56,18 @@ and prints the server's `timings`:
 2. `warm`: identical prompt again (256 tokens served from the prefix cache).
 3. `decode`: fixed 90-token prompt, `max_tokens 256` (measures sustained decode + MTP draft acceptance).
 
-CodeAct regression (`codeact_demo.py`, smolagents `CodeAgent` + `LiteLLMModel`
-against `http://127.0.0.1:8095/v1`, model id `openai/qwen3.6-35b-a3b`): one
-exchange-rate tool-use task, expected total 16566. The script times `agent.run()`,
-sums `token_usage` over `agent.memory.steps`, verifies the answer with
-`codeact_check.verify_answer`, prints `format_report`, and exits 0/1.
-`test_codeact_check.py`: 5 unit tests for the verifier/reporter.
+CodeAct regression (`examples/codeact_demo.py`, smolagents `CodeAgent` +
+`LiteLLMModel` against `http://127.0.0.1:8095/v1`, model id
+`openai/qwen3.6-35b-a3b`): one exchange-rate tool-use task, expected total
+16566. The script times `agent.run()`, sums `token_usage` over
+`agent.memory.steps`, verifies the answer with `codeact_check.verify_answer`,
+prints `format_report`, and exits 0/1. `examples/test_codeact_check.py`: 5 unit
+tests for the verifier/reporter (`python3 test_codeact_check.py` in `examples/`).
 
 CodeAct regression on the winner (server running with the adopted config):
 
 ```bash
-cd /Volumes/Samsung970EVOPlus/dev-projects/codeact && uv run --script codeact_demo.py
+cd /Volumes/Samsung970EVOPlus/dev-projects/strata-q36/examples && uv run --script codeact_demo.py
 # expect: verdict=PASS expected=16566 ... and exit code 0
 ```
 
