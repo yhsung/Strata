@@ -70,9 +70,10 @@ workloads beside the server, fall back to arena 12 (~2.7x the old decode rate).
 
 - Single runs, one machine, UD-Q4_K_S, 131072 context. Not a claim about other
   hardware, quants, or longer prompts.
-- CodeAct regression at 128K: rerun `uv run --script codeact_demo.py` from
-  `examples/` against the adopted config; expected `verdict=PASS`, ~50-60 s
-  (ran 53.77 s at 8K).
+- CodeAct regression at 128K (`examples/codeact_demo.py`, adopted config):
+  `verdict=PASS expected=16566 elapsed_s=49.11 input_tokens=2231
+  output_tokens=374 blended_tok/s=53.0`, exit 0 — same answer and tokens as the
+  8K runs (53.37 s), context bump cost nothing on this task.
 - A 16K-token prompt (omp-system-prompt scale) prefill check at 128K is still
   open; the probe's longest arm is 285 tokens.
 - The discarded 32K sweep (interrupted mid-run, port contention with the config
