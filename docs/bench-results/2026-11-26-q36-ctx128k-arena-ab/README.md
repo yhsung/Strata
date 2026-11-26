@@ -74,15 +74,17 @@ workloads beside the server, fall back to arena 12 (~2.7x the old decode rate).
   `verdict=PASS expected=16566 elapsed_s=49.11 input_tokens=2231
   output_tokens=374 blended_tok/s=53.0`, exit 0 — same answer and tokens as the
   8K runs (53.37 s), context bump cost nothing on this task.
-- 16K-token single-prompt prefill (2026-11-27): 9,776 tokens pass (168.6 s,
-  58.0 tok/s); a 19,528-token prompt dies twice with HTTP 503
-  (`mtl: command buffer failed: Impacting Interactivity` in the engine log —
-  macOS kills one long-running Metal command buffer), identically with and
-  without the vision encoder loaded, so this is not vision memory. Progress
-  lines show steady 64-token-step prefill before the kill. Workaround for
-  omp-scale (~16K) system prompts is open: engine-side prefill yield/smaller
-  dispatch is needed; chunk-size env knobs (`STRATA_Q36_CKPT_*`) only move
-  checkpoint cadence, not buffer length.
+- Long-prompt prefill at 128K context (2026-11-27, calibrated via
+  `/v1/messages/count_tokens`): 9,776 tokens pass (168.6 s, 58.0 tok/s) and
+  16,355 tokens pass (331.3 s, 49.4 tok/s, answer correct) — omp-scale (~16K)
+  system prompts are inside the working range.
+- A 19,528-token prompt dies twice with HTTP 503 (`mtl: command buffer failed:
+  Impacting Interactivity` in the engine log — macOS kills one long-running
+  Metal command buffer), identically with and without the vision encoder
+  loaded, so this is not vision memory. Progress lines show steady 64-token-step
+  prefill before the kill. The ceiling is between 16,355 and 19,528 tokens, not
+  at 16K. Engine-side prefill yield/smaller dispatch would be needed to raise
+  it; `STRATA_Q36_CKPT_*` only moves checkpoint cadence, not buffer length.
 - At failure time: ~60 MB free, swap 2.5/4 GB used; the engine's 17.2 GB wired
   arena is released on crash (35 GB free after). Short prompts keep working —
   the server restarts the engine on the next request.
