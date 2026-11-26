@@ -30,18 +30,19 @@ STRATA_ROOT="/Volumes/Samsung970EVOPlus/dev-projects/strata-q36"  # all paths ab
 ```
 
 `ab_run.sh` (this folder, executable) runs one A/B cell: it copies the live
-canonical config, rewrites only `--arena-gb` / `--mtp`, restarts the server on
-port 8095, waits for `/health`, runs `ab_probe.py`, then stops the server it
-started. Usage: `./ab_run.sh <arena_gb> <mtp_depth> <label> [canonical_config] [port]`.
+canonical config, rewrites `--arena-gb` / `--mtp` / `--max-context` (pinned to
+8192 for this report, so a later live-config change cannot mislabel a rerun),
+restarts the server on port 8095, waits for `/health`, runs `ab_probe.py`, then
+stops the server it started. Usage: `./ab_run.sh <arena_gb> <mtp_depth> <label> <max_context> [canonical_config] [port]`.
 The full sweep that produced `runs.tsv`:
 
 ```bash
 cd /Volumes/Samsung970EVOPlus/dev-projects/strata-q36/docs/bench-results/2026-11-26-q36-arena-ab
-./ab_run.sh 4 2 baseline-arena4-mtp2
-./ab_run.sh 8 2 arena8-mtp2
-./ab_run.sh 12 2 arena12-mtp2
-./ab_run.sh 16 2 arena16-mtp2
-./ab_run.sh 16 3 arena16-mtp3
+./ab_run.sh 4 2 baseline-arena4-mtp2 8192
+./ab_run.sh 8 2 arena8-mtp2 8192
+./ab_run.sh 12 2 arena12-mtp2 8192
+./ab_run.sh 16 2 arena16-mtp2 8192
+./ab_run.sh 16 3 arena16-mtp3 8192
 ```
 
 One cold server per cell (the script always restarts it); two resident engines
@@ -125,5 +126,5 @@ decode rate).
   adopted `strata_qwen36_config.json` (arena 16) is the live config, not stored
   here (absolute local paths). `ab_probe.py` is copied here; the demo/check
   scripts live in the codeact dir and are referenced, not forked.
-- Revalidation 2026-11-26 (`./ab_run.sh 16 2 verify-arena16`): cold 4,295 ms /
+- Revalidation 2026-11-26 (`./ab_run.sh 16 2 verify-arena16 8192`): cold 4,295 ms /
   66.4 tok/s, decode 7,330 ms / 34.9 tok/s, MTP 141/228 — matches the adopted row.

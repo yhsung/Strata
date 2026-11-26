@@ -12,25 +12,33 @@
 # serve instance on the same port first, and always stops the server it started.
 set -euo pipefail
 
-ARENA="${1:?usage: ab_run.sh <arena_gb> <mtp_depth> <label> [canonical_config] [port]}"
-MTP="${2:?usage: ab_run.sh <arena_gb> <mtp_depth> <label> [canonical_config] [port]}"
-LABEL="${3:?usage: ab_run.sh <arena_gb> <mtp_depth> <label> [canonical_config] [port]}"
-CANON="${4:-/Volumes/Samsung970EVOPlus/dev-projects/codeact/strata_qwen36_config.json}"
-PORT="${5:-8095}"
+ARENA="${1:?usage: ab_run.sh <arena_gb> <mtp_depth> <label> <max_context> [canonical_config] [port]}"
+MTP="${2:?usage: ab_run.sh <arena_gb> <mtp_depth> <label> <max_context> [canonical_config] [port]}"
+LABEL="${3:?usage: ab_run.sh <arena_gb> <mtp_depth> <label> <max_context> [canonical_config] [port]}"
+CTX="${4:?usage: ab_run.sh <arena_gb> <mtp_depth> <label> <max_context> [canonical_config] [port]}"
+CANON="${5:-/Volumes/Samsung970EVOPlus/dev-projects/codeact/strata_qwen36_config.json}"
+PORT="${6:-8095}"
 STRATA_ROOT="/Volumes/Samsung970EVOPlus/dev-projects/strata-q36"
 
 TMP="$(mktemp /tmp/strata_ab_variant_XXXXXX.json)"
 LOG="/tmp/strata_ab_${PORT}.log"
-trap 'rm -f "$TMP"' EXIT
+SRV=""
+cleanup() {
+  if [ -n "$SRV" ]; then kill "$SRV" 2>/dev/null || true; wait "$SRV" 2>/dev/null || true; fi
+  rm -f "$TMP"
+}
+trap cleanup EXIT
 
-# Variant config = canonical JSON with only --arena-gb / --mtp rewritten.
-python3 - "$CANON" "$TMP" "$ARENA" "$MTP" <<'EOF'
+# Variant config = canonical JSON with --arena-gb / --mtp / --max-context rewritten
+# (the context is pinned per report; inheriting the live value mislabels reruns).
+python3 - "$CANON" "$TMP" "$ARENA" "$MTP" "$CTX" <<'EOF'
 import json, sys
-src, dst, arena, mtp = sys.argv[1:5]
+src, dst, arena, mtp, ctx = sys.argv[1:6]
 d = json.load(open(src))
 a = list(d["args"])
 a[a.index("--arena-gb") + 1] = arena
 a[a.index("--mtp") + 1] = mtp
+a[a.index("--max-context") + 1] = ctx
 d["args"] = a
 json.dump(d, open(dst, "w"), indent=2)
 EOF
@@ -57,5 +65,3 @@ fi
 
 python3 "$(dirname "$0")/ab_probe.py" --port "$PORT" --label "$LABEL"
 
-kill "$SRV" 2>/dev/null || true
-wait "$SRV" 2>/dev/null || true

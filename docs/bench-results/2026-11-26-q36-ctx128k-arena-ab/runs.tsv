@@ -1,0 +1,16 @@
+label	phase	prompt_n	cache_n	prompt_ms	prompt_tps	pred_n	pred_ms	pred_tps	draft
+ctx128k-arena4	cold	285	0	14462.0	19.7	2	574.3	3.5	2/2
+ctx128k-arena4	warm	285	256	2724.4	10.6	2	95.5	20.9	2/2
+ctx128k-arena4	decode	90	0	6400.5	14.1	256	24127.2	10.6	141/228
+ctx128k-arena8	cold	285	0	9800.5	29.1	2	369.7	5.4	2/2
+ctx128k-arena8	warm	285	256	1933.0	15.0	2	93.6	21.4	2/2
+ctx128k-arena8	decode	90	0	4461.3	20.2	256	11377.8	22.5	141/228
+ctx128k-arena12	cold	285	0	6948.3	41.0	2	280.8	7.1	2/2
+ctx128k-arena12	warm	285	256	1411.2	20.5	2	78.4	25.5	2/2
+ctx128k-arena12	decode	90	0	3165.4	28.4	256	9003.2	28.4	141/228
+ctx128k-arena16	cold	285	0	4348.3	65.5	2	152.0	13.2	2/2
+ctx128k-arena16	warm	285	256	851.7	34.0	2	78.4	25.5	2/2
+ctx128k-arena16	decode	90	0	1844.6	48.8	256	7244.3	35.3	141/228
+ctx128k-arena16-mtp3	cold	285	0	4297.6	66.3	2	187.0	10.7	3/3
+ctx128k-arena16-mtp3	warm	285	256	826.9	35.1	2	112.0	17.9	3/3
+ctx128k-arena16-mtp3	decode	90	0	1872.0	48.1	256	8305.8	30.8	148/321
